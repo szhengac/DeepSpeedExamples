@@ -38,6 +38,7 @@ if USE_TORCH_DDP:
 else:
     from model import DistributedDataParallel as DDP
 import mpu
+import deepspeed
 from apex.optimizers import FusedAdam as Adam
 from utils import Timers
 from utils import save_checkpoint
@@ -65,16 +66,17 @@ def get_model(args):
     # Fp16 conversion.
     if args.fp16:
         model = FP16_Module(model)
-        if args.fp32_embedding:
-            model.module.model.bert.embeddings.word_embeddings.float()
-            model.module.model.bert.embeddings.position_embeddings.float()
-            model.module.model.bert.embeddings.token_type_embeddings.float()
-        if args.fp32_tokentypes:
-            model.module.model.bert.embeddings.token_type_embeddings.float()
-        if args.fp32_layernorm:
-            for name, _module in model.named_modules():
-                if 'LayerNorm' in name:
-                    _module.float()
+        #if not args.deepspeed:
+        #    if args.fp32_embedding:
+        #        model.module.model.bert.embeddings.word_embeddings.float()
+        #        model.module.model.bert.embeddings.position_embeddings.float()
+        #        model.module.model.bert.embeddings.token_type_embeddings.float()
+        #    if args.fp32_tokentypes:
+        #        model.module.model.bert.embeddings.token_type_embeddings.float()
+        #    if args.fp32_layernorm:
+        #        for name, _module in model.named_modules():
+        #            if 'LayerNorm' in name:
+        #                _module.float()
 
     # Wrap model for distributed training.
     if USE_TORCH_DDP:
@@ -117,6 +119,10 @@ def get_optimizer(model, args):
     optimizer = Adam(param_groups,
                      lr=args.lr, weight_decay=args.weight_decay)
 
+    if args.deepspeed:
+        # fp16 wrapper is not required for DeepSpeed.
+        return optimizer
+
     # Wrap into fp16 optimizer.
     if args.fp16:
         optimizer = FP16_Optimizer(optimizer,
@@ -156,6 +162,18 @@ def setup_model_and_optimizer(args):
     model = get_model(args)
     optimizer = get_optimizer(model, args)
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
+
+    if args.deepspeed:
+        print_rank_0("DeepSpeed is enabled.")
+
+        model, optimizer, _, lr_scheduler = deepspeed.initialize(
+            model=model,
+            optimizer=optimizer,
+            args=args,
+            lr_scheduler=lr_scheduler,
+            mpu=mpu,
+            dist_init_required=False
+        )
 
     if args.load is not None:
         args.iteration = load_checkpoint(model, optimizer, lr_scheduler, args)
@@ -227,42 +245,55 @@ def forward_step(data_iterator, model, args, timers):
     return lm_loss, nsp_loss
 
 
-def backward_step(optimizer, model, lm_loss, nsp_loss, args):
+def backward_step(optimizer, model, lm_loss, nsp_loss, args, timers):
     """Backward step."""
 
     # Total loss.
     loss = lm_loss + nsp_loss
 
     # Backward pass.
-    optimizer.zero_grad()
-    if args.fp16:
-        optimizer.backward(loss, update_master_grads=False)
-    else:
-        loss.backward()
+    if args.deepspeed:
+        model.backward(loss)
+    else: 
+        optimizer.zero_grad()
+        if args.fp16:
+            optimizer.backward(loss, update_master_grads=False)
+        else:
+            loss.backward()
 
     # Reduce across processes.
     lm_loss_reduced = lm_loss
     nsp_loss_reduced = nsp_loss
 
     reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
-    torch.distributed.all_reduce(reduced_losses.data)
-    reduced_losses.data = reduced_losses.data / args.world_size
-    if not USE_TORCH_DDP:
-        model.allreduce_params(reduce_after=False,
-                               fp32_allreduce=args.fp32_allreduce)
+
+    if args.deepspeed:
+            # DeepSpeed backward propagation already addressed all reduce communication.
+            # Reset the timer to avoid breaking timer logs below.
+            timers('allreduce').reset()
+    else:
+        torch.distributed.all_reduce(reduced_losses.data)
+        reduced_losses.data = reduced_losses.data / args.world_size
+        if not USE_TORCH_DDP:
+            timers('allreduce').start()
+            model.allreduce_params(reduce_after=False,
+                                fp32_allreduce=args.fp32_allreduce)
+            timers('allreduce').stop()
+
     lm_loss_reduced = reduced_losses[0]
     nsp_loss_reduced = reduced_losses[1]
 
-    # Update master gradients.
-    if args.fp16:
-        optimizer.update_master_grads()
+    if not args.deepspeed:
+        # Update master gradients.
+        if args.fp16:
+            optimizer.update_master_grads()
 
-    # Clipping gradients helps prevent the exploding gradient.
-    if args.clip_grad > 0:
-        if not args.fp16:
-            mpu.clip_grad_norm(model.parameters(), args.clip_grad)
-        else:
-            optimizer.clip_master_grads(args.clip_grad)
+        # Clipping gradients helps prevent the exploding gradient.
+        if args.clip_grad > 0:
+            if not args.fp16:
+                mpu.clip_grad_norm(model.parameters(), args.clip_grad)
+            else:
+                optimizer.clip_master_grads(args.clip_grad)
 
     return lm_loss_reduced, nsp_loss_reduced
 
@@ -280,20 +311,23 @@ def train_step(data_iterator, model, optimizer, lr_scheduler,
     # Calculate gradients, reduce across processes, and clip.
     timers('backward').start()
     lm_loss_reduced, nsp_loss_reduced = backward_step(optimizer, model, lm_loss,
-                                                      nsp_loss, args)
+                                                      nsp_loss, args, timers)
     timers('backward').stop()
 
     # Update parameters.
-    timers('optimizer').start()
-    optimizer.step()
-    timers('optimizer').stop()
-
-    # Update learning rate.
     skipped_iter = 0
-    if not (args.fp16 and optimizer.overflow):
-        lr_scheduler.step()
+    timers('optimizer').start()
+    if args.deepspeed:
+        model.step()
     else:
-        skipped_iter = 1
+        optimizer.step()
+
+        # Update learning rate.
+        if not (args.fp16 and optimizer.overflow):
+            lr_scheduler.step()
+        else:
+            skipped_iter = 1
+    timers('optimizer').stop()
 
     return lm_loss_reduced, nsp_loss_reduced, skipped_iter
 
@@ -344,7 +378,7 @@ def train(model, optimizer, lr_scheduler,
             log_string += ' nsp loss {:.6E} |'.format(avg_nsp_loss)
             if args.fp16:
                 log_string += ' loss scale {:.1f} |'.format(
-                    optimizer.loss_scale)
+                     optimizer.cur_scale if args.deepspeed else optimizer.loss_scale)
             print_rank_0(log_string)
             total_nsp_loss = 0.0
             total_lm_loss = 0.0
@@ -393,6 +427,13 @@ def evaluate(data_iterator, model, args, timers, verbose = False):
             # Forward evaluation.
             lm_loss, nsp_loss = forward_step(data_iterator, model,
                                              args, timers)
+            '''when contiguous memory optimizations are enabled, the buffers
+            allocated by the optimizations are deallocated during backward pass
+            in the absence of backward pass the buffers should be reset after each
+            forward pass'''
+            if args.deepspeed and args.deepspeed_activation_checkpointing:
+                deepspeed.checkpointing.reset()
+
             # Reduce across processes.
             if isinstance(model, DDP):
                 reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
@@ -431,6 +472,29 @@ def evaluate_and_print_results(prefix, data_iterator, model,
     return val_loss
 
 
+'''
+    Optional DeepSpeed Activation Checkpointing features
+    Gives access to partition activations, contiguous memory optimizations
+    and cpu checkpointing.
+
+    Activation checkpoint requires keep track of the random states
+    and setting the random seed for each MP process. Megatron uses
+    mpu.get_cuda_rng_tracker and mpu.model_parallel_cuda_manual_seed
+    for keeping track of the random states and setting the random seeds.
+    Since they are used in places outside of activation checkpointing,
+    we overwrite them to maintain consistency.
+
+    This must be done before all the calls to mpu.model_parallel_cuda_manual_seed
+    '''
+def set_deepspeed_activation_checkpointing(args):
+    deepspeed.checkpointing.configure(mpu, deepspeed_config=args.deepspeed_config,
+                                      num_checkpoints=args.num_layers)
+    mpu.checkpoint = deepspeed.checkpointing.checkpoint
+    mpu.get_cuda_rng_tracker = deepspeed.checkpointing.get_cuda_rng_tracker
+    mpu.model_parallel_cuda_manual_seed = deepspeed.checkpointing.model_parallel_cuda_manual_seed
+
+
+
 def initialize_distributed(args):
     """Initialize torch.distributed."""
 
@@ -452,6 +516,10 @@ def initialize_distributed(args):
     # Set the model-parallel / data-parallel communicators.
     mpu.initialize_model_parallel(args.model_parallel_size)
 
+    # Optional DeepSpeed Activation Checkpointing Features
+    #
+    if args.deepspeed and args.deepspeed_activation_checkpointing:
+        set_deepspeed_activation_checkpointing(args)
 
 def set_random_seed(seed):
     """Set random seed for reproducability."""

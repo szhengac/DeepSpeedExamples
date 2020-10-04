@@ -1,25 +1,27 @@
-#!/bin/bash
+#! /bin/bash
 
-GPUS_PER_NODE=8
 # Change for multinode config
-MASTER_ADDR=localhost
-MASTER_PORT=6000
-NNODES=1
-NODE_RANK=0
-WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
+MP_SIZE=1
 
-DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
+NUM_WORKERS=2
+NUM_GPUS_PER_WORKER=8
 
-python3 -m torch.distributed.launch $DISTRIBUTED_ARGS \
-       pretrain_bert.py \
+script_path=$(realpath $0)
+script_dir=$(dirname $script_path)
+
+hostfile="$script_dir/hosts"
+
+config_json="$script_dir/ds_bert_config.json"
+bert_options=" \
+       --model-parallel-size ${MP_SIZE} \
        --num-layers 24 \
        --hidden-size 1024 \
        --num-attention-heads 16 \
-       --batch-size 8 \
+       --batch-size 16 \
        --seq-length 512 \
        --max-preds-per-seq 80 \
        --max-position-embeddings 512 \
-       --train-iters 1000000 \
+       --train-iters 500000 \
        --save checkpoints/bert_345m \
        --load checkpoints/bert_345m \
        --resume-dataloader \
@@ -38,7 +40,16 @@ python3 -m torch.distributed.launch $DISTRIBUTED_ARGS \
        --clip-grad 1.0 \
        --warmup .01 \
        --fp16 \
-       --fp32-layernorm \
-       --fp32-embedding \
        --log-interval 100
+"
+bert_options="${bert_options}
+               --deepspeed \
+               --deepspeed_config ${config_json} \
+"
 
+
+run_cmd="deepspeed --num_nodes ${NUM_WORKERS} --num_gpus ${NUM_GPUS_PER_WORKER} pretrain_bert.py $@ ${bert_options}"
+echo ${run_cmd}
+eval ${run_cmd}
+
+set +x
