@@ -10,7 +10,7 @@ DATA_DIR=/fsx/datasets
 mkdir -p $OUTPUT_DIR
 
 NCCL_TREE_THRESHOLD=0 deepspeed ${base_dir}/deepspeed_train.py \
---cf ${base_dir}/configs/bert_huge.json \
+--cf ${base_dir}/configs/bert_large.json \
 --max_seq_length 512 \
 --output_dir $OUTPUT_DIR \
 --deepspeed \

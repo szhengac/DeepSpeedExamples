@@ -36,12 +36,12 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 from torch.utils import checkpoint
 
-from turing.file_utils import cached_path
-
 from torch.nn import Module
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
 import torch.nn.init as init
+
+from utils.file_utils import cached_path
 
 
 logger = logging.getLogger(__name__)

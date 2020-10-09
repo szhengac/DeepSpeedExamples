@@ -10,8 +10,8 @@ import collections
 import time
 
 from .text import mask, torch_long, PAD
-from .sources import QueryPassageDataset, QueryInstanceDataset, \
-    PretrainingDataCreator, TokenInstance, QueryPassageFineTuningDataset, \
+from .sources import \
+    PretrainingDataCreator, TokenInstance, \
     WikiNBookCorpusPretrainingDataCreator, CleanBodyDataCreator, \
     NumpyPretrainingDataCreator
 from .sources import WikiPretrainingDataCreator

@@ -1,8 +1,8 @@
 import torch
 
-from turing.utils import TorchTuple
+from utils.utils import TorchTuple
 
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+from utils.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 
 from .bert import BertModel, BertForPreTrainingPreLN, BertConfig
 
