@@ -188,4 +188,4 @@ class PreTrainingDataset(Dataset):
         for p in masked_lms:
             masked_lm_output[p.index] = self.tokenizer.vocab[p.label]
 
-        return (output_tokens, masked_lm_output)
+        return output_tokens, masked_lm_output
