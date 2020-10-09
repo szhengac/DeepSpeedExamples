@@ -30,14 +30,13 @@ class TokenInstance:
     """ This TokenInstance is a obect to have the basic units of data that should be
         extracted from the raw text file and can be consumed by any BERT like model.
     """
-    def __init__(self, tokens_a, tokens_b, is_next, lang="en"):
+    def __init__(self, tokens_a, tokens_b, lang="en"):
         self.tokens_a = tokens_a
         self.tokens_b = tokens_b
-        self.is_next = is_next  # 0 is if in continuation, 1 if is random
         self.lang = lang
 
     def get_values(self):
-        return (self.tokens_a, self.tokens_b, self.is_next)
+        return self.tokens_a, self.tokens_b
 
     def get_lang(self):
         return self.lang
@@ -64,7 +63,7 @@ class PretrainingDataCreator:
                 # query, title, url, snippet, document = line.split('\t')
                 # ! remove this following line later
                 document = line
-                if len(document.split("<sep>")) <= 3:
+                if len(document.split("<sep>")) <= 4:
                     continue
                 lines = document.split("<sep>")
                 document = []
@@ -113,8 +112,8 @@ class PretrainingDataCreator:
         # print(l)
         # print(document)
 
-        # Need to add [CLS] + 2*[SEP] tokens
-        max_num_tokens = self.max_seq_length - 3
+        # Need to add at least [CLS] + [SEP] tokens
+        max_num_tokens = self.max_seq_length - 2
 
         # We want to maximize the inp sequence but also want inputs similar
         # to our generic task inputs which will be compartively smaller
@@ -136,31 +135,21 @@ class PretrainingDataCreator:
             current_length += len(segment)
             if i == len(document) - 1 or current_length >= target_seq_length:
                 if current_chunk:
-                    # `a_end` is how many segments from `current_chunk` go into the `A`
-                    # (first) sentence.
-                    a_end = 1
-                    if len(current_chunk) >= 2:
-                        a_end = random.randint(1, len(current_chunk) - 1)
-
                     tokens_a = []
-                    for j in range(a_end):
+                    for j in range(len(current_chunk)):
                         tokens_a.extend(current_chunk[j])
 
                     tokens_b = []
 
-                    # Random Next
-                    is_random_next = False
-                    if len(current_chunk) == 1 or random.random() < 0.5:
+                    # if len(tokens_a) < target_seq_length, get extra tokens from other document
+                    if len(tokens_a) < target_seq_length:
                         is_random_next = True
                         target_b_length = target_seq_length - len(tokens_a)
 
                         # Pick a random document
-                        for _ in range(10):
-                            random_doc_index = random.randint(
-                                0,
-                                len(self.documents) - 1)
-                            if random_doc_index != index:
-                                break
+                        random_doc_index = random.randint(0, len(self.documents) - 2)
+                        if random_doc_index == index:
+                            random_doc_index = len(self.documents) - 1
 
                         random_doc = self.documents[random_doc_index]
                         random_start = random.randint(0, len(random_doc) - 1)
@@ -168,78 +157,22 @@ class PretrainingDataCreator:
                             tokens_b.extend(random_doc[j])
                             if len(tokens_b) >= target_b_length:
                                 break
-
-                        # We didn't actually use these segments so we "put them back" so
-                        # they don't go to waste.
-                        num_unused_segments = len(current_chunk) - a_end
-                        i -= num_unused_segments
-
-                    # Actual Next
-                    else:
-                        is_random_next = False
-                        for j in range(a_end, len(current_chunk)):
-                            tokens_b.extend(current_chunk[j])
+                        # Need to add at least [CLS] + 3 * [SEP] tokens
+                        max_num_tokens -= 2
 
                     truncate_input_sequence(tokens_a, tokens_b, max_num_tokens)
 
                     assert len(tokens_a) >= 1
-                    assert len(tokens_b) >= 1
+                    assert len(tokens_b) >= 0
 
                     instances.append(
-                        TokenInstance(tokens_a, tokens_b, int(is_random_next)))
+                        TokenInstance(tokens_a, tokens_b))
                     # print(instances[-1])
                 current_chunk = []
                 current_length = 0
             i += 1
         # print(len(instances))
         return instances
-
-
-class CleanBodyDataCreator(PretrainingDataCreator):
-    def __init__(self,
-                 path,
-                 tokenizer: BertTokenizer,
-                 max_seq_length: int = 512,
-                 readin: int = 2000000,
-                 dupe_factor: int = 5,
-                 small_seq_prob: float = 0.1):
-        self.dupe_factor = dupe_factor
-        self.max_seq_length = max_seq_length
-        self.small_seq_prob = small_seq_prob
-
-        documents = []
-        instances = []
-        with open(path, encoding='utf-8') as fd:
-            for i, line in enumerate(tqdm(fd)):
-                line = line.replace('\n', '')
-                url, cleanbody, rand_int = line.rstrip("\n").split("\t")
-                cleanbody = cleanbody.replace("#TAB#", " ").replace(
-                    "#NULL#", "").replace("#HASH#", "#")
-                cleanbody_parts = cleanbody.split("#R##N#")
-                for document in cleanbody_parts:
-                    lines = document.split("#N#")
-                    document = []
-                    document_len = 0
-                    for seq in lines:
-                        tok_seq = tokenizer.tokenize(seq)
-                        if len(tok_seq) != 0:
-                            document.append(tok_seq)
-                            document_len += len(tok_seq)
-                    if document_len >= 200:
-                        documents.append(document)
-
-        documents = [x for x in documents if x]
-
-        self.documents = documents
-        for _ in range(self.dupe_factor):
-            for index in range(len(self.documents)):
-                instances.extend(self.create_training_instance(index))
-
-        shuffle(instances)
-        self.instances = instances
-        self.len = len(self.instances)
-        self.documents = None
-        documents = None
 
 
 class WikiNBookCorpusPretrainingDataCreator(PretrainingDataCreator):
@@ -344,10 +277,9 @@ class NumpyByteInstances:
         #     self.__getitem__ = self.getitem_monolingual
 
     def getitem_multilingual(self, i):
-        tokens_a, tokens_b, is_next = self.getitem_fixed(i)
+        tokens_a, tokens_b = self.getitem_fixed(i)
         return TokenInstance(tokens_a,
                              tokens_b,
-                             is_next,
                              lang=self.data_creator.lang[i])
 
     def getitem_monolingual(self, i):
@@ -375,8 +307,7 @@ class NumpyByteInstances:
             self.data_creator.data[instance_start:instance_end], token_offsets)
         tokens = [t.tostring().decode('utf8') for t in token_arrs]
 
-        return tokens[:tokens_split], tokens[
-            tokens_split:], self.data_creator.is_next[i]
+        return tokens[:tokens_split], tokens[tokens_split:]
 
     def sep_getitem_fixed(self, i):
         if i > self.data_creator.len:
@@ -398,8 +329,7 @@ class NumpyByteInstances:
             for i, t in enumerate(token_arrs)
         ]  # ignore first byte, which will be separator, for tokens after the first
 
-        return tokens[:tokens_split], tokens[
-            tokens_split:], self.data_creator.is_next[i]
+        return tokens[:tokens_split], tokens[tokens_split:]
 
     def __len__(self):
         return self.data_creator.len

@@ -11,8 +11,8 @@ import time
 
 from .text import mask, torch_long, PAD
 from .sources import \
-    PretrainingDataCreator, TokenInstance, \
-    WikiNBookCorpusPretrainingDataCreator, CleanBodyDataCreator, \
+    TokenInstance, \
+    WikiNBookCorpusPretrainingDataCreator, \
     NumpyPretrainingDataCreator
 from .sources import WikiPretrainingDataCreator
 from tokenization.tokenization import BertTokenizer
@@ -33,8 +33,7 @@ MaskedLMInstance = collections.namedtuple("MaskedLMInstance",
                                           ["index", "label"])
 
 PretrainBatch = collections.namedtuple('PreTrainBatch', [
-    'input_ids', 'input_mask', 'sequence_ids', 'is_next_label',
-    'masked_lm_output'
+    'input_ids', 'input_mask', 'masked_lm_output'
 ])
 
 
@@ -65,41 +64,6 @@ def map_to_torch_half(encoding):
     return encoding
 
 
-def encode_sequence(seqA, seqB, max_seq_len, tokenizer):
-    seqA = ["[CLS]"] + seqA + ["[SEP]"]
-    seqB = seqB + ["[SEP]"]
-
-    input_tokens = seqA + seqB
-    input_ids = tokenizer.convert_tokens_to_ids(input_tokens)
-    sequence_ids = [0] * len(seqA) + [1] * len(seqB)
-    input_mask = [1] * len(input_ids)
-
-    while len(input_ids) < max_seq_len:
-        input_ids.append(PAD)
-        sequence_ids.append(PAD)
-        input_mask.append(PAD)
-
-    return (map_to_torch(input_ids), map_to_torch(input_mask),
-            map_to_torch(sequence_ids))
-
-
-def truncate_input_sequence(tokens_a, tokens_b, max_num_tokens):
-    while True:
-        total_length = len(tokens_a) + len(tokens_b)
-        if total_length <= max_num_tokens:
-            break
-
-        trunc_tokens = tokens_a if len(tokens_a) > len(tokens_b) else tokens_b
-        assert len(trunc_tokens) >= 1
-
-        # We want to sometimes truncate from the front and sometimes from the
-        # back to add more randomness and avoid biases.
-        if random.random() < 0.5:
-            del trunc_tokens[0]
-        else:
-            trunc_tokens.pop()
-
-
 class PreTrainingDataset(Dataset):
     def __init__(self,
                  tokenizer: BertTokenizer,
@@ -121,11 +85,6 @@ class PreTrainingDataset(Dataset):
 
         logger.info(f"Loading Pretraining Data from {path}")
         start = time.time()
-        # logger.info(f"Loading Pretraining Data from {path}")
-        # if data_type == PretrainDataType.CLEAN_BODY:
-        #     self.data = CleanBodyDataCreator.load(path)
-        # elif data_type == PretrainDataType.WIKIPEDIA or data_type == PretrainDataType.BOOK_CORPUS:
-        #     self.data = WikiNBookCorpusPretrainingDataCreator.load(path)
         if data_type == PretrainDataType.VALIDATION:
             self.data = WikiPretrainingDataCreator.load(path)
         elif data_type == PretrainDataType.NUMPY:
@@ -150,8 +109,7 @@ class PreTrainingDataset(Dataset):
         return self.create_training_instance(instance)
 
     def create_training_instance(self, instance: TokenInstance):
-        tokens_a, tokens_b, is_next = instance.get_values()
-        # print(f'is_next label:{is_next}')
+        tokens_a, tokens_b = instance.get_values()
         # Create mapper
         tokens = []
         tokens.append("[CLS]")
@@ -160,10 +118,11 @@ class PreTrainingDataset(Dataset):
 
         tokens.append("[SEP]")
 
-        for token in tokens_b:
-            tokens.append(token)
-
-        tokens.append("[SEP]")
+        if len(tokens_b) > 0:
+            tokens.append("[SEP]")
+            for token in tokens_b:
+                tokens.append(token)
+            tokens.append("[SEP]")
 
         # Get Masked LM predictions
         tokens, masked_lm_output = self.create_masked_lm_predictions(tokens)
