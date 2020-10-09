@@ -970,11 +970,12 @@ class BertModel(BertPreTrainedModel):
 
         # If BertEncoder uses sparse attention, it needs to be padded based on the sparse attention block size
         if self.sparse_attention_config is not None:
+            token_type_ids = torch.zeros_like(input_ids)
             pad_len, input_ids, attention_mask, _, position_ids, inputs_embeds = self.sparse_attention_utils.pad_to_block_size(
                 block_size=self.sparse_attention_config.block,
                 input_ids=input_ids,
                 attention_mask=extended_attention_mask,
-                token_type_ids=None,
+                token_type_ids=token_type_ids,
                 position_ids=None,
                 inputs_embeds=None,
                 pad_token_id=self.pad_token_id,

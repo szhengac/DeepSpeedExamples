@@ -196,8 +196,8 @@ def train(args,
         if is_time_to_exit(args=args,
                            epoch_steps=epoch_step,
                            global_steps=current_global_step):
-            print(
-                f'Warning: Early epoch termination due to max steps limit, epoch step ={epoch_step}, global step = {current_global_step}, epoch = {index+1}'
+            logging.warning(
+                f'Early epoch termination due to max steps limit, epoch step ={epoch_step}, global step = {current_global_step}, epoch = {index+1}'
             )
             break
         step_time = time.time() - step_start
@@ -206,10 +206,9 @@ def train(args,
         ) and dist.get_rank() == 0:
             one_step_bs = args.train_micro_batch_size_per_gpu * args.gradient_accumulation_steps * dist.get_world_size(
             ) * rounds
-            print(' At step {}, the throughput is {:2f} Samples/s'.format(
+            logger.info(' At step {}, the throughput is {:2f} Samples/s'.format(
                 global_step * args.gradient_accumulation_steps,
-                one_step_bs / all_step_time),
-                  flush=True)
+                one_step_bs / all_step_time))
             all_step_time = 0.0
 
     pretrain_dataset_provider.release_shard(index)
@@ -227,7 +226,7 @@ def update_learning_rate(args, config, current_global_step, optimizer):
     global_step_for_lr = current_global_step - last_global_step_from_restore
 
     if args.lr_schedule == "EE":
-        #print(f'LR Schedule is {args.lr_schedule} EE')
+        #logging.info(f'LR Schedule is {args.lr_schedule} EE')
         lr_this_step = config["training"][
             "learning_rate"] * warmup_exp_decay_exp(
                 global_step_for_lr, config["training"]["decay_rate"],
@@ -235,7 +234,7 @@ def update_learning_rate(args, config, current_global_step, optimizer):
                 config["training"]["total_training_steps"],
                 config["training"]["warmup_proportion"])
     elif args.lr_schedule == "EP":
-        print(f'LR Schedule is {args.lr_schedule} EP')
+        #logging.info(f'LR Schedule is {args.lr_schedule} EP')
         lr_this_step = config["training"][
             "learning_rate"] * warmup_exp_decay_poly(
                 global_step_for_lr, config["training"]["total_training_steps"],
@@ -257,6 +256,7 @@ def update_learning_rate(args, config, current_global_step, optimizer):
 
 def report_step_metrics(args, lr, loss, step, data_sample_count):
     ##### Record the LR against global_step on tensorboard #####
+    logger = args.logger
     if (not args.no_cuda
             and dist.get_rank() == 0) or (args.no_cuda
                                           and args.local_rank == -1):
@@ -270,14 +270,15 @@ def report_step_metrics(args, lr, loss, step, data_sample_count):
     ##### Recording  done. #####
 
     if (step + 1) % args.print_steps == 0 and master_process(args):
-        print('bing_bert_progress: step={}, loss={}, lr={}, sample_count={}'.
+        logger.info('bert_progress: step={}, loss={}, lr={}, sample_count={}'.
               format(step + 1, loss, lr, data_sample_count))
 
 
 def report_lamb_coefficients(args, optimizer):
+    logger = args.logger
     if master_process(args):
         if (args.fp16 and args.use_lamb):
-            #print("Lamb Coeffs", optimizer.optimizer.get_lamb_coeffs())
+            logger.info("Lamb Coeffs: {}".format(optimizer.optimizer.get_lamb_coeffs()))
             lamb_coeffs = optimizer.optimizer.get_lamb_coeffs()
             lamb_coeffs = np.array(lamb_coeffs)
             if lamb_coeffs.size > 0:
@@ -302,7 +303,9 @@ def construct_arguments():
     args = get_arguments()
 
     # Prepare Logger
-    logger = Logger(cuda=torch.cuda.is_available() and not args.no_cuda)
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logger = Logger(cuda=torch.cuda.is_available() and not args.no_cuda,
+                    filename=args.log_file, level=log_level)
     args.logger = logger
     config = json.load(open(args.config_file, 'r', encoding='utf-8'))
 
@@ -318,9 +321,9 @@ def construct_arguments():
     args.config = config
 
     args.job_name = config['name'] if args.job_name is None else args.job_name
-    print("Running Config File: ", args.job_name)
+    logging.info("Running Config File: {}".format(args.job_name))
     # Setting the distributed variables
-    print("Args = {}".format(args))
+    logging.info("Args = {}".format(args))
 
     # Setting all the seeds so that the task is random but same accross processes
     random.seed(args.seed)
@@ -501,7 +504,7 @@ def run(args, model, optimizer, start_epoch):
 
         current_global_step = global_step - last_global_step_from_restore
         if is_time_to_exit(args=args, global_steps=current_global_step):
-            print(
+            logger.info(
                 f'Warning: Early training termination due to max steps limit, epoch={index+1}, global_step={current_global_step}'
             )
             break

@@ -196,4 +196,13 @@ def get_argument_parser():
                         action='store_true',
                         help='Use Nvidia pretraining dataset.')
 
+    parser.add_argument(
+        '--log_file',
+        type=str,
+        default="",
+        help=
+        "Path to log file")
+
+    parser.add_argument('--verbose', action='store_true', help='verbose logging')
+
     return parser

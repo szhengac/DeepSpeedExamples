@@ -21,4 +21,4 @@ NCCL_TREE_THRESHOLD=0 deepspeed ${base_dir}/deepspeed_train.py \
 --job_name $JOB_NAME \
 --deepspeed_config ${base_dir}/configs/deepspeed_bert_config.json \
 --data_path_prefix ${DATA_DIR} \
-&> ${JOB_NAME}.log
+--log_file ${JOB_NAME}.log
