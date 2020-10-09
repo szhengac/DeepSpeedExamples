@@ -3,7 +3,7 @@
 # Change for multinode config
 MP_SIZE=1
 
-NUM_WORKERS=2
+NUM_WORKERS=1
 NUM_GPUS_PER_WORKER=8
 
 script_path=$(realpath $0)
@@ -40,7 +40,8 @@ bert_options=" \
        --clip-grad 1.0 \
        --warmup .01 \
        --fp16 \
-       --log-interval 100
+       --log-interval 100 \
+       --save-interval 500
 "
 bert_options="${bert_options}
                --deepspeed \
@@ -48,7 +49,7 @@ bert_options="${bert_options}
 "
 
 
-run_cmd="deepspeed --num_nodes ${NUM_WORKERS} --num_gpus ${NUM_GPUS_PER_WORKER} pretrain_bert.py $@ ${bert_options}"
+run_cmd="deepspeed --num_nodes ${NUM_WORKERS} --num_gpus ${NUM_GPUS_PER_WORKER} pretrain_bert.py $@ ${bert_options} &> bert.log"
 echo ${run_cmd}
 eval ${run_cmd}
 
