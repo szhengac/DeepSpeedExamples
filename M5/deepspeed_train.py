@@ -29,13 +29,12 @@ global_data_samples = 0
 last_global_step_from_restore = 0
 
 
-def checkpoint_model(PATH, ckpt_id, model, epoch, last_global_step,
+def checkpoint_model(PATH, ckpt_id, model, last_global_step,
                      last_global_data_samples, **kwargs):
     """Utility function for checkpointing model + optimizer dictionaries
        The main purpose for this is to be able to resume training from that instant again
     """
     checkpoint_state_dict = {
-        'epoch': epoch,
         'last_global_step': last_global_step,
         'last_global_data_samples': last_global_data_samples
     }
@@ -58,12 +57,11 @@ def load_training_checkpoint(args, model, PATH, ckpt_id):
     """
     logger = args.logger
     _, checkpoint_state_dict = model.network.load_checkpoint(PATH, ckpt_id)
-    epoch = checkpoint_state_dict['epoch']
     last_global_step = checkpoint_state_dict['last_global_step']
     last_global_data_samples = checkpoint_state_dict[
         'last_global_data_samples']
     del checkpoint_state_dict
-    return (epoch, last_global_step, last_global_data_samples)
+    return last_global_step, last_global_data_samples
 
 
 def get_dataloader(args, dataset: Dataset, eval_set=False):
@@ -80,6 +78,8 @@ def get_dataloader(args, dataset: Dataset, eval_set=False):
 
 
 def pretrain_validation(args, index, model):
+    global global_step
+
     if args.validation_data_path_prefix is None:
         return
 
@@ -108,7 +108,7 @@ def pretrain_validation(args, index, model):
         eval_loss += tmp_eval_loss.mean().item()
         nb_eval_steps += 1
     eval_loss = eval_loss / nb_eval_steps
-    logger.info(f"Validation Loss for epoch {index + 1} is: {eval_loss}")
+    logger.info(f"Validation Loss for global step {global_step} is: {eval_loss}")
     if (not args.no_cuda
             and dist.get_rank() == 0) or (args.no_cuda
                                           and args.local_rank == -1):
@@ -139,14 +139,13 @@ def train(args,
     config = args.config
     logger = args.logger
     logger.info(
-        f'worker-{dist.get_rank()}: begin epoch {index+1} current_sample_count {current_data_sample_count} shard_length {total_length} global_data_samples {global_data_samples}'
+        f'worker-{dist.get_rank()}: begin {index+1}-th shard current_sample_count {current_data_sample_count} shard_length {total_length} global_data_samples {global_data_samples}'
     )
 
     pretrain_dataset_provider.prefetch_shard(index + 1)
 
     model.train()
 
-    epoch_step = 0
     rounds = 20
     all_step_time = 0.0
     step_counts = 0
@@ -184,7 +183,19 @@ def train(args,
 
                 report_lamb_coefficients(args, optimizer)
                 global_step += 1
-                epoch_step += 1
+
+                if global_step % args.save_ckpt_interval == 0:
+                    logger.info(f"Saving a checkpointing of the model for step: {global_step}")
+        
+                    checkpoint_model(PATH=args.saved_model_path,
+                                    ckpt_id='global_step_{}'.format(global_step),
+                                    model=model,
+                                    last_global_step=global_step,
+                                    last_global_data_samples=global_data_samples)
+
+                # Run Validation Loss
+                if global_step % args.validation_interval == 0 and not finetune:
+                    pretrain_validation(args, index, model)
             else:
                 # Call DeepSpeed engine step on micro steps
                 model.network.step()
@@ -194,10 +205,9 @@ def train(args,
 
         current_global_step = global_step - last_global_step_from_restore
         if is_time_to_exit(args=args,
-                           epoch_steps=epoch_step,
                            global_steps=current_global_step):
             logging.warning(
-                f'Early epoch termination due to max steps limit, epoch step ={epoch_step}, global step = {current_global_step}, epoch = {index+1}'
+                f'Termination due to max steps limit, global step = {current_global_step}'
             )
             break
         step_time = time.time() - step_start
@@ -214,10 +224,6 @@ def train(args,
     pretrain_dataset_provider.release_shard(index)
 
     global_data_samples = current_data_sample_count
-
-    # Run Validation Loss
-    if not finetune and args.max_seq_length == 512:
-        pretrain_validation(args, index, model)
 
 
 def update_learning_rate(args, config, current_global_step, optimizer):
@@ -319,6 +325,7 @@ def construct_arguments():
     config["data"]["datasets"] = datasets
     config["training"] = training
     args.config = config
+    args.max_steps = config["training"]["total_training_steps"]
 
     args.job_name = config['name'] if args.job_name is None else args.job_name
     logging.info("Running Config File: {}".format(args.job_name))
@@ -347,15 +354,7 @@ def construct_arguments():
             'Skipping validation because validation_data_path_prefix is unspecified'
         )
 
-    # Issue warning if early exit from epoch is configured
-    if args.max_steps < sys.maxsize:
-        logging.warning(
-            'Early training exit is set after {} global steps'.format(
-                args.max_steps))
-
-    if args.max_steps_per_epoch < sys.maxsize:
-        logging.warning('Early epoch exit is set after {} global steps'.format(
-            args.max_steps_per_epoch))
+    logging.info('Training exit is set after {} global steps'.format(args.max_steps))
 
     return args
 
@@ -437,13 +436,13 @@ def load_checkpoint(args, model):
     logger.info(
         f"Restoring previous training checkpoint from PATH={args.load_training_checkpoint}, CKPT_ID={args.load_checkpoint_id}"
     )
-    start_epoch, global_step, global_data_samples = load_training_checkpoint(
+    global_step, global_data_samples = load_training_checkpoint(
         args=args,
         model=model,
         PATH=args.load_training_checkpoint,
         ckpt_id=args.load_checkpoint_id)
     logger.info(
-        f"The model is loaded from last checkpoint at epoch {start_epoch} when the global steps were at {global_step} and global data samples at {global_data_samples}"
+        f"The model is loaded from last checkpoint when the global steps were at {global_step} and global data samples at {global_data_samples}"
     )
 
     if args.rewarmup:
@@ -460,17 +459,8 @@ def load_checkpoint(args, model):
             config["training"]["warmup_proportion"])
     logger.info(f"Restart training with lr = {lr_this_step}")
 
-    # Run validation for checkpoint before training
-    if not args.finetune and args.max_seq_length == 512:
-        logger.info(
-            f"Validation Loss of Checkpoint {start_epoch} before pretraining")
-        index = start_epoch - 1 if start_epoch > 0 else start_epoch
-        pretrain_validation(args, index, model)
 
-    return start_epoch
-
-
-def run(args, model, optimizer, start_epoch):
+def run(args, model, optimizer):
     global global_step
     global global_data_samples
     global last_global_step_from_restore
@@ -480,44 +470,31 @@ def run(args, model, optimizer, start_epoch):
 
     pretrain_dataset_provider = NvidiaBertDatasetProvider(args)
 
-    for index in range(start_epoch, config["training"]["num_epochs"]):
-        logger.info(f"Training Epoch: {index + 1}")
+    index = 0
+    while True:
+        logger.info(f"Training {index + 1}-th shard")
         pre = time.time()
         train(args, index, model, optimizer, pretrain_dataset_provider)
-
-        # Save ckpts according to "--ckpt_to_save" option,
-        # e.g. "--ckpt_to_save 160 161" to save epoch 160 and 161.
-        if args.ckpt_to_save is None or (index + 1) in args.ckpt_to_save:
-            logger.info(
-                f"Saving a checkpointing of the model for epoch: {index+1}")
-
-            checkpoint_model(PATH=args.saved_model_path,
-                             ckpt_id='epoch{}_step{}'.format(
-                                 index + 1, global_step),
-                             model=model,
-                             epoch=index + 1,
-                             last_global_step=global_step,
-                             last_global_data_samples=global_data_samples)
-
         post = time.time()
-        logger.info(f"Time for shard {index + 1}: {post-pre} seconds")
+        logger.info(f"Time for {index + 1}-th shard: {post-pre} seconds")
 
         current_global_step = global_step - last_global_step_from_restore
         if is_time_to_exit(args=args, global_steps=current_global_step):
             logger.info(
-                f'Warning: Early training termination due to max steps limit, epoch={index+1}, global_step={current_global_step}'
+                f'Warning: Early training termination due to max steps limit, global_step={current_global_step}'
             )
             break
+
+        index += 1
 
 
 def main():
     start = time.time()
     args = construct_arguments()
     model, optimizer = prepare_model_optimizer(args)
-    start_epoch = 0
     if not None in [args.load_training_checkpoint, args.load_checkpoint_id]:
-        start_epoch = load_checkpoint(args, model)
-    run(args, model, optimizer, start_epoch)
+        load_checkpoint(args, model)
+    run(args, model, optimizer)
     elapsed = time.time() - start
     logger = args.logger
     logger.info(f"Elapsed time: {elapsed} seconds")

@@ -11,7 +11,8 @@
     "params": {
       "lr": 1e-4,
       "weight_decay": 0.01,
-      "bias_correction": false
+      "bias_correction": false,
+      "eps": 1e-6
     }
   },
   "gradient_clipping": 1.0,

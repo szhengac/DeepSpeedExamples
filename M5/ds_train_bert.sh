@@ -15,9 +15,10 @@ NCCL_TREE_THRESHOLD=0 deepspeed ${base_dir}/deepspeed_train.py \
 --output_dir $OUTPUT_DIR \
 --deepspeed \
 --deepspeed_transformer_kernel \
---print_steps 100 \
+--print_steps 10 \
 --lr_schedule "EE" \
---lr_offset 1e-4 \
+--lr_offset 0.0 \
+--save_ckpt_interval 50000 \
 --job_name $JOB_NAME \
 --deepspeed_config ${base_dir}/configs/deepspeed_bert_config.json \
 --data_path_prefix ${DATA_DIR} \

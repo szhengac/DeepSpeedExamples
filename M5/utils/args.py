@@ -118,14 +118,6 @@ def get_argument_parser():
         'Maximum number of training steps of effective batch size to complete.'
     )
 
-    parser.add_argument(
-        '--max_steps_per_epoch',
-        type=int,
-        default=sys.maxsize,
-        help=
-        'Maximum number of training steps of effective batch size within an epoch to complete.'
-    )
-
     parser.add_argument('--print_steps',
                         type=int,
                         default=100,
@@ -156,14 +148,6 @@ def get_argument_parser():
         default=False,
         action='store_true',
         help='Use stochastic mode for high-performance transformer kernel.')
-
-    parser.add_argument(
-        '--ckpt_to_save',
-        nargs='+',
-        type=int,
-        help=
-        'Indicates which checkpoints to save, e.g. --ckpt_to_save 160 161, by default all checkpoints are saved.'
-    )
 
     parser.add_argument(
         '--attention_dropout_checkpoint',
@@ -204,5 +188,21 @@ def get_argument_parser():
         "Path to log file")
 
     parser.add_argument('--verbose', action='store_true', help='verbose logging')
+
+    parser.add_argument(
+        '--save_ckpt_interval',
+        type=int,
+        default=50000,
+        help=
+        'Number of iterations between saves.'
+    )
+
+    parser.add_argument(
+        '--validation_interval',
+        type=int,
+        default=50000,
+        help=
+        'Number of iterations between validation.'
+    )
 
     return parser

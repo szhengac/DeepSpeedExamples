@@ -169,6 +169,5 @@ def namedtorchbatch(typename: str,
     return result
 
 
-def is_time_to_exit(args, epoch_steps=0, global_steps=0):
-    return (epoch_steps >= args.max_steps_per_epoch) or \
-            (global_steps >= args.max_steps)
+def is_time_to_exit(args, global_steps=0):
+    return global_steps >= args.max_steps

@@ -3,7 +3,7 @@
     "bert_token_file": "bert-base-uncased",
     "bert_model_file": "bert-base-uncased",
     "bert_model_config": {
-        "vocab_size_or_config_json_file": 30522,
+        "vocab_size_or_config_json_file": 30528,
         "hidden_size": 1024,
         "num_hidden_layers": 24,
         "num_attention_heads": 16,
@@ -21,33 +21,31 @@
         },
         "mixed_seq_datasets": {
             "128": {
-                "pretrain_dataset": "hdf5_lower_case_1_seq_len_128_max_pred_20_masked_lm_prob_0.15_random_seed_12345_dupe_factor_10_shard_1536_large/books_wiki_en_corpus_train"
+                "pretrain_dataset": "hdf5_lower_case_1_seq_len_128_max_pred_20_masked_lm_prob_0.15_random_seed_12345_dupe_factor_5_shard_1536_small/books_wiki_en_corpus_train"
             },
             "512": {
-                "pretrain_dataset": "hdf5_lower_case_1_seq_len_512_max_pred_80_masked_lm_prob_0.15_random_seed_12345_dupe_factor_10_shard_1536_large/books_wiki_en_corpus_train"
+                "pretrain_dataset": "hdf5_lower_case_1_seq_len_512_max_pred_80_masked_lm_prob_0.15_random_seed_12345_dupe_factor_5_shard_1536_small//books_wiki_en_corpus_train"
             }
         }
     },
     "mixed_seq_training": {
         "128": {
-            "num_epochs": 150,
             "warmup_proportion": 0.06,
-            "learning_rate": 1e-8,
+            "learning_rate": 1e-4,
             "num_workers": 0,
             "async_worker": true,
             "decay_rate": 0.90,
             "decay_step": 250,
-            "total_training_steps": 7500
+            "total_training_steps": 900000
         },
         "512": {
-            "num_epochs": 160,
             "warmup_proportion": 0.01,
             "learning_rate": 1e-4,
             "num_workers": 0,
             "async_worker": true,
             "decay_rate": 0.90,
             "decay_step": 150,
-            "total_training_steps": 500000
+            "total_training_steps": 100000
         }
     },
     "validation": {
