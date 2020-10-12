@@ -16,7 +16,7 @@ NCCL_TREE_THRESHOLD=0 deepspeed ${base_dir}/deepspeed_train.py \
 --deepspeed \
 --deepspeed_transformer_kernel \
 --print_steps 10 \
---lr_schedule "EE" \
+--lr_schedule "LP" \
 --lr_offset 0.0 \
 --save_ckpt_interval 50000 \
 --job_name $JOB_NAME \

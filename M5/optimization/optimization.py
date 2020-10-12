@@ -41,6 +41,22 @@ def warmup_linear(x, warmup=0.002):
     return 1.0 - x
 
 
+def warmup_linear_const_decay_poly(global_step,
+                                   total_steps,
+                                   warmup=0.002,
+                                   const=0.,
+                                   degree=1.0):
+    x = global_step / total_steps
+    warmup_end = warmup * total_steps
+    if warmup == 0.0:
+        return 1.0
+    elif x < warmup:
+        return x / warmup
+    elif x < warmup + const:
+        return 1.0
+    return ((1.0 - x) / (1.0 - warmup - const)) ** degree
+
+
 def warmup_linear_decay_exp(global_step,
                             decay_rate,
                             decay_steps,

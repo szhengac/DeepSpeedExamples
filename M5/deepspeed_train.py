@@ -18,7 +18,7 @@ from utils.utils import get_sample_writer, is_time_to_exit
 from models.models import BertMultiTask
 from datasets.dataset import PreTrainingDataset, PretrainDataType
 from tokenization.tokenization import BertTokenizer
-from optimization.optimization import warmup_linear_decay_exp, warmup_exp_decay_exp, warmup_exp_decay_poly
+from optimization.optimization import warmup_linear_decay_exp, warmup_exp_decay_exp, warmup_exp_decay_poly, warmup_linear_const_decay_poly
 
 from datasets.nvidia_bert_dataset_provider import NvidiaBertDatasetProvider
 
@@ -245,13 +245,20 @@ def update_learning_rate(args, config, current_global_step, optimizer):
             "learning_rate"] * warmup_exp_decay_poly(
                 global_step_for_lr, config["training"]["total_training_steps"],
                 config["training"]["warmup_proportion"])
-    else:
+    elif args.lr_schedule == 'LP':
+        lr_this_step = config["training"][
+            "learning_rate"] * warmup_linear_const_decay_poly(
+                global_step_for_lr, config["training"]["total_training_steps"],
+                config["training"]["warmup_proportion"], config["training"]["const_proportion"])
+    elif args.lr_schedule == 'LE':
         lr_this_step = config["training"][
             "learning_rate"] * warmup_linear_decay_exp(
                 global_step_for_lr, config["training"]["decay_rate"],
                 config["training"]["decay_step"],
                 config["training"]["total_training_steps"],
                 config["training"]["warmup_proportion"])
+    else:
+        raise NotImplementedError
     lr_this_step += args.lr_offset
 
     for param_group in optimizer.param_groups:

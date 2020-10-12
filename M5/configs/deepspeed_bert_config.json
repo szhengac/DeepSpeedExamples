@@ -6,12 +6,13 @@
   "zero_optimization": {
     "stage": 2
   },
+  "zero_allow_untested_optimizer": true,
   "optimizer": {
-    "type": "Adam",
+    "type": "Lamb",
     "params": {
       "lr": 1e-4,
       "weight_decay": 0.01,
-      "bias_correction": false,
+      "bias_correction": true,
       "eps": 1e-6
     }
   },
