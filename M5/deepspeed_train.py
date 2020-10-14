@@ -402,6 +402,9 @@ def prepare_model_optimizer(args):
     # Loading Model
     model = BertMultiTask(args)
 
+    logging.info(' Number of parameters: {}'.format(
+        sum([p.nelement() for p in model.network.parameters()])))
+
     # Optimizer parameters
     optimizer_grouped_parameters = prepare_optimizer_parameters(args, model)
 
