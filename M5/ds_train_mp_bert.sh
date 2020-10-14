@@ -15,7 +15,6 @@ NCCL_TREE_THRESHOLD=0 deepspeed ${base_dir}/deepspeed_mp_train.py \
 --max_seq_length 512 \
 --output_dir $OUTPUT_DIR \
 --deepspeed \
---deepspeed_transformer_kernel \
 --print_steps 10 \
 --lr_schedule "LP" \
 --lr_offset 0.0 \

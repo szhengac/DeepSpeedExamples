@@ -156,14 +156,17 @@ def train(args,
     global global_data_samples
     global last_global_step_from_restore
 
-    dataset_iterator, total_length = pretrain_dataset_provider.get_shard(index)
+    dataset_iterator = None
+    if pretrain_dataset_provider is not None:
+        dataset_iterator, total_length = pretrain_dataset_provider.get_shard(index)
     current_data_sample_count = global_data_samples
 
     config = args.config
     logger = args.logger
-    logger.info(
-        f'worker-{dist.get_rank()}: begin {index+1}-th shard current_sample_count {current_data_sample_count} shard_length {total_length} global_data_samples {global_data_samples}'
-    )
+    if mpu.get_model_parallel_rank() == 0:
+        logger.info(
+                f'worker-{dist.get_rank()}: begin {index+1}-th shard current_sample_count {current_data_sample_count} shard_length {total_length} global_data_samples {global_data_samples}'
+                )
 
     if pretrain_dataset_provider is not None:
         pretrain_dataset_provider.prefetch_shard(index + 1)
@@ -174,16 +177,29 @@ def train(args,
     all_step_time = 0.0
     step_counts = 0
 
-    for _, batch_index in enumerate(tqdm(dataset_iterator, smoothing=1)):
+    if dataset_iterator is not None:
+        data_iter = iter(dataset_iterator)
+        num_batches = torch.cuda.LongTensor([len(dataset_iterator)])
+    else:
+        num_batches = torch.cuda.LongTensor([0])
+
+    # Broadcast num batches.
+    torch.distributed.broadcast(num_batches,
+                                mpu.get_model_parallel_src_rank(),
+                                group=mpu.get_model_parallel_group())
+    num_batches = num_batches[0].item()
+
+    for _ in tqdm(range(num_batches), smoothing=1):
         try:
             step_start = time.time()
 
-            # broadcast batch from src model parallel rank to others
-            if pretrain_dataset_provider is not None:
+            if mpu.get_model_parallel_rank() == 0:
+                batch_index = next(data_iter)
                 batch = pretrain_dataset_provider.get_batch(batch_index)
                 data = {k: v for k, v in zip(keys, batch)}
             else:
                 data = None
+            # broadcast batch from src model parallel rank to others
             data = mpu.broadcast_data(keys, data, datatype)
             batch = [data[k] for k in keys]
 
@@ -437,7 +453,7 @@ def prepare_model_optimizer(args):
     if mpu.get_data_parallel_rank() == 0:
         logging.info(' Number of parameters on model parallel rank {}: {}'.format(
             mpu.get_model_parallel_rank(),
-            sum([p.nelement() for p in model.parameters()])), flush=True)
+            sum([p.nelement() for p in model.network.parameters()])))
 
     # Optimizer parameters
     optimizer_grouped_parameters = prepare_optimizer_parameters(args, model)
