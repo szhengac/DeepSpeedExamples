@@ -450,9 +450,6 @@ class BertAttention(nn.Module):
 class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
-        self.dense_act = LinearActivation(config.hidden_size,
-                                          config.intermediate_size,
-                                          act=config.hidden_act)
         self.dense = mpu.ColumnParallelLinear(
             input_size=config.hidden_size,
             output_size=config.intermediate_size,
