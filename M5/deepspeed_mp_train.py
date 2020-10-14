@@ -127,7 +127,7 @@ def pretrain_validation(args, index, model):
         tmp_eval_loss = model.network(batch, log=False)
         dist.reduce(tmp_eval_loss, 0)
         # Reduce to get the loss from all the GPU's
-        tmp_eval_loss = tmp_eval_loss / dist.get_world_size()
+        tmp_eval_loss = tmp_eval_loss / mpu.get_data_parallel_world_size()
         eval_loss += tmp_eval_loss.mean().item()
         nb_eval_steps += 1
     eval_loss = eval_loss / nb_eval_steps
@@ -165,8 +165,10 @@ def train(args,
     logger = args.logger
     if mpu.get_model_parallel_rank() == 0:
         logger.info(
-                f'worker-{dist.get_rank()}: begin {index+1}-th shard current_sample_count {current_data_sample_count} shard_length {total_length} global_data_samples {global_data_samples}'
-                )
+            f'Model parallel group-{mpu.get_model_parallel_group()}:'
+            f' begin {index+1}-th shard current_sample_count {current_data_sample_count}'
+            f' shard_length {total_length} global_data_samples {global_data_samples}'
+        )
 
     if pretrain_dataset_provider is not None:
         pretrain_dataset_provider.prefetch_shard(index + 1)
@@ -209,7 +211,7 @@ def train(args,
             loss = model.network(batch)
             unscaled_loss = loss.item()
             current_data_sample_count += (args.train_micro_batch_size_per_gpu *
-                                          dist.get_world_size())
+                                          mpu.get_data_parallel_world_size())
 
             if pretrain_dataset_provider is not None:
                 # Prefetch training data
@@ -264,9 +266,9 @@ def train(args,
         all_step_time += step_time
         if global_step % rounds == 0 and global_step != 0 and model.network.is_gradient_accumulation_boundary(
         ) and dist.get_rank() == 0:
-            one_step_bs = args.train_micro_batch_size_per_gpu * args.gradient_accumulation_steps * dist.get_world_size(
-            ) * rounds
-            logger.info(' At step {}, the throughput is {:2f} Samples/s'.format(
+            one_step_bs = args.train_micro_batch_size_per_gpu * args.gradient_accumulation_steps \
+                          * mpu.get_data_parallel_world_size() * rounds
+            logger.info(' At micro step {}, the throughput is {:2f} Samples/s'.format(
                 global_step * args.gradient_accumulation_steps,
                 one_step_bs / all_step_time))
             all_step_time = 0.0
@@ -471,6 +473,9 @@ def prepare_model_optimizer(args):
     )
     args.gradient_accumulation_steps = model.network.gradient_accumulation_steps(
     )
+
+    args.logger.info("Per model parallel group batch size: {}, number of gradient accumulation steps: {}"
+                     .format(args.train_micro_batch_size_per_gpu, args.gradient_accumulation_steps))
 
     # Set DeepSpeed info
     args.local_rank = model.network.local_rank

@@ -139,7 +139,10 @@ def train(args,
     config = args.config
     logger = args.logger
     logger.info(
-        f'worker-{dist.get_rank()}: begin {index+1}-th shard current_sample_count {current_data_sample_count} shard_length {total_length} global_data_samples {global_data_samples}'
+        f'worker-{dist.get_rank()}: begin {index+1}-th shard'
+        f' current_sample_count {current_data_sample_count}'
+        f' shard_length {total_length}'
+        f' global_data_samples {global_data_samples}'
     )
 
     pretrain_dataset_provider.prefetch_shard(index + 1)
@@ -216,7 +219,7 @@ def train(args,
         ) and dist.get_rank() == 0:
             one_step_bs = args.train_micro_batch_size_per_gpu * args.gradient_accumulation_steps * dist.get_world_size(
             ) * rounds
-            logger.info(' At step {}, the throughput is {:2f} Samples/s'.format(
+            logger.info(' At micro step {}, the throughput is {:2f} Samples/s'.format(
                 global_step * args.gradient_accumulation_steps,
                 one_step_bs / all_step_time))
             all_step_time = 0.0
