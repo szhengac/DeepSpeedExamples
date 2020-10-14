@@ -19,9 +19,9 @@ class BertMultiTask:
             # Padding for divisibility by 8
             if bert_config.vocab_size % 8 != 0:
                 bert_config.vocab_size += 8 - (bert_config.vocab_size % 8)
-            args.logger.info("VOCAB SIZE: {}, PAD SIZE: {}"
-                             .format(bert_config.vocab_size,
-                                     bert_config.vocab_size - len(args.tokenizer.vocab)))
+            print("VOCAB SIZE: {}, PAD SIZE: {}"
+                  .format(bert_config.vocab_size,
+                          bert_config.vocab_size - len(args.tokenizer.vocab)))
 
             self.network = BertForPreTrainingPreLN(bert_config, args)
         # Use pretrained bert weights
