@@ -562,7 +562,10 @@ def set_deepspeed_activation_checkpointing(args):
     mpu.model_parallel_cuda_manual_seed = deepspeed.checkpointing.model_parallel_cuda_manual_seed
 
 
-def initialize_mpu(args):
+def initialize_distributed(args):
+    torch.distributed.init_process_group(
+        backend="nccl")
+
     # Set the model-parallel / data-parallel communicators.
     mpu.initialize_model_parallel(args.model_parallel_size)
 
@@ -577,7 +580,7 @@ def initialize_mpu(args):
 def main():
     start = time.time()
     args = construct_arguments()
-    initialize_mpu(args)
+    initialize_distributed(args)
     model, optimizer = prepare_model_optimizer(args)
     if not None in [args.load_training_checkpoint, args.load_checkpoint_id]:
         load_checkpoint(args, model)
