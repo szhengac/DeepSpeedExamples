@@ -208,4 +208,7 @@ def get_argument_parser():
     parser.add_argument('--model_parallel_size', type=int, default=1,
                         help='size of the model parallel.')
 
+    parser.add_argument('--deepspeed_activation_checkpointing', action='store_true',
+                        help='uses activation checkpointing from deepspeed')
+
     return parser
