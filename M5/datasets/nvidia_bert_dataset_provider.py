@@ -80,7 +80,7 @@ class pretraining_dataset(Dataset):
 
 
 class NvidiaBertDatasetProvider(BertDatasetProviderInterface):
-    def __init__(self, args):
+    def __init__(self, args, mpu=None):
         self.num_workers = args.config['training']['num_workers']
         self.max_seq_length = args.max_seq_length
         self.max_predictions_per_seq = args.max_predictions_per_seq
@@ -89,12 +89,20 @@ class NvidiaBertDatasetProvider(BertDatasetProviderInterface):
         self.train_micro_batch_size_per_gpu = args.train_micro_batch_size_per_gpu
         self.logger = args.logger
 
+        self.mpu = mpu
+
         if args.local_rank == -1:
             self.global_rank = 0
-            self.world_size = 1
+            self.dp_size = 1
+            self.dp_rank = self.global_rank
         else:
             self.global_rank = dist.get_rank()
-            self.world_size = dist.get_world_size()
+            if self.mpu is not None:
+                self.dp_rank = self.mpu.get_data_parallel_rank()
+                self.dp_size = self.mpu.get_data_parallel_world_size()
+            else:
+                self.dp_rank = self.global_rank
+                self.dp_size = dist.get_world_size()
 
         # Initialize dataset files
         dataset_path = os.path.join(
@@ -152,15 +160,15 @@ class NvidiaBertDatasetProvider(BertDatasetProviderInterface):
         pass
 
     def _get_shard_file(self, shard_index):
-        file_index = self._get_shard_file_index(shard_index, self.global_rank)
+        file_index = self._get_shard_file_index(shard_index, self.dp_rank)
         return self.dataset_files[file_index % self.num_files]
 
-    def _get_shard_file_index(self, shard_index, global_rank):
-        if dist.is_initialized() and self.world_size > self.num_files:
-            remainder = self.world_size % self.num_files
-            file_index = (shard_index * self.world_size) + global_rank + (
+    def _get_shard_file_index(self, shard_index, dp_rank):
+        if dist.is_initialized() and self.dp_size > self.num_files:
+            remainder = self.dp_size % self.num_files
+            file_index = (shard_index * self.dp_size) + dp_rank + (
                 remainder * shard_index)
         else:
-            file_index = shard_index * self.world_size + global_rank
+            file_index = shard_index * self.dp_size + dp_rank
 
         return file_index % self.num_files

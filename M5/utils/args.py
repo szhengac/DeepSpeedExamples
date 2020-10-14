@@ -205,4 +205,7 @@ def get_argument_parser():
         'Number of iterations between validation.'
     )
 
+    parser.add_argument('--model_parallel_size', type=int, default=1,
+                        help='size of the model parallel.')
+
     return parser

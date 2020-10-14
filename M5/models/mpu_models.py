@@ -4,7 +4,7 @@ from utils.utils import TorchTuple
 
 from utils.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 
-from .bert import BertModel, BertForPreTrainingPreLN, BertConfig
+from .mpu_bert import BertModel, BertForPreTrainingPreLN, BertConfig
 
 
 class BertMultiTask:

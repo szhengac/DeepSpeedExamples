@@ -3,7 +3,7 @@
     "bert_token_file": "bert-base-uncased",
     "bert_model_file": "bert-base-uncased",
     "bert_model_config": {
-        "vocab_size_or_config_json_file": 30528,
+        "vocab_size_or_config_json_file": 30522,
         "hidden_size": 1024,
         "num_hidden_layers": 24,
         "num_attention_heads": 16,

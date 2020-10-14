@@ -184,7 +184,7 @@ def f_gelu(x):
     return y.to(pdtype)
 
 
-#@torch.jit.script
+@torch.jit.script
 def bias_gelu(bias, y):
     x = bias + y
     return x * 0.5 * (1.0 + torch.erf(x / 1.41421))
@@ -209,7 +209,10 @@ def swish(x):
     return x * torch.sigmoid(x)
 
 
-ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish}
+ACT2FN = {"gelu": gelu,
+          "relu": torch.nn.functional.relu,
+          "tanh": torch.nn.functional.tanh,
+          "swish": swish}
 
 
 class LinearActivation(Module):
