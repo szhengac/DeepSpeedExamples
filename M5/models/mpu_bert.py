@@ -185,7 +185,6 @@ def f_gelu(x):
     y = x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
     return y.to(pdtype)
 
-
 @torch.jit.script
 def bias_gelu(bias, y):
     x = bias + y
@@ -198,13 +197,18 @@ def bias_tanh(bias, y):
     return torch.tanh(x)
 
 
+@torch.jit.script
+def h_gelu(x):
+    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
         0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
         Also see https://arxiv.org/abs/1606.08415
     """
-    return f_gelu(x)
+    return h_gelu(x)
 
 
 def swish(x):
