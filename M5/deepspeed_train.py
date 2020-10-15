@@ -184,7 +184,7 @@ def train(args,
 
                 model.network.step()
 
-                report_lamb_coefficients(args, optimizer)
+                #report_lamb_coefficients(args, optimizer)
                 global_step += 1
 
                 if global_step % args.save_ckpt_interval == 0:
